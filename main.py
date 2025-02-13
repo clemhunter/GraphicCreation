@@ -8,65 +8,71 @@ import zipfile
 
 st.title("Grafiken generieren")
 
-# Drag & Drop File Uploader (nur .xlsx-Dateien)
+# Drag & Drop File Uploader (only .xlsx files)
 uploaded_file = st.file_uploader("Ziehe deine Excel-Datei hierher", type=["xlsx"])
 
 if uploaded_file:
     if st.button("Grafiken generieren"):
-        # Excel-Datei einlesen
+        # Read the Excel file – ensure that the "Enddate" column is present
         df = pd.read_excel(
             uploaded_file,
             sheet_name='Sheet2',
-            usecols=['Datum', 'Remaining Business Days', 'Event', 'Achieved', 'Completion', 'Accounts Invited']
+            usecols=['Datum', 'Enddate', 'Remaining Business Days', 'Event', 'Achieved', 'Completion', 'Accounts Invited']
         )
 
-        # Einzigartige Events
+        # Get unique events
         unique_events = df['Event'].unique()
 
         st.write("Grafiken werden generiert ...")
 
-        # Dictionary zum Speichern der Bild-Puffer für jedes Event
+        # List of colors (five colors):
+        # 1. Ocker (already used), 2. eb8c00, 3. db536a, 4. a chosen color, 5. another chosen color
+        colors = ['#DAA520', '#eb8c00', '#db536a', '#009688', '#8a2be2']
+
+        # Dictionary to store image buffers for each event
         images = {}
 
-        for event in unique_events:
-            # Daten filtern, kopieren und nach Datum sortieren
+        for i, event in enumerate(unique_events):
+            # Select a color for this event (cycling if more events than colors)
+            color = colors[i % len(colors)]
+
+            # Filter, copy and sort the data by date
             event_data = df[df['Event'] == event].copy()
             event_data['Datum'] = pd.to_datetime(event_data['Datum'], errors='coerce')
             event_data = event_data.sort_values('Datum')
 
-            # Enddatum unter Berücksichtigung von Business Days berechnen
-            event_data['Enddatum'] = event_data['Datum'] + event_data['Remaining Business Days'].apply(
-                lambda x: BDay(x))
+            # Use the "Enddate" column from the Excel file (convert it to datetime)
+            event_data['Enddatum'] = pd.to_datetime(event_data['Enddate'], errors='coerce')
 
-            # Berechnung des Ockerwerts (als Integer, z. B. 60)
+            # Calculate the hline_value (e.g., 60) as an integer
             hline_value = int(np.ceil(event_data['Achieved'].iloc[0] / event_data['Completion'].iloc[0]))
 
-            # Nur Zeilen mit gültigen Werten berücksichtigen
+            # Drop rows with missing values in 'Achieved' or 'Accounts Invited'
             event_data = event_data.dropna(subset=['Achieved', 'Accounts Invited'])
 
-            # Letztes Datum (bei vorhandenen Daten) und Enddatum ermitteln
+            # Determine the last date and the end date from the data
             last_date = event_data['Datum'].max()
             end_date = event_data['Enddatum'].max()
 
-            # x-Achse: Gleichmäßige Abstände mit fortlaufendem Index
+            # Create x-axis values with equal spacing
             x_data = np.arange(len(event_data))
 
-            # Erstelle das Plot-Objekt
+            # Create the plot object
             fig, ax = plt.subplots(figsize=(12, 6))
 
-            # Flächen füllen
+            # Fill areas
             ax.fill_between(x_data, event_data['Accounts Invited'], color='grey', alpha=0.3)
-            ax.fill_between(x_data, event_data['Achieved'], color='#DAA520', alpha=0.85)
+            ax.fill_between(x_data, event_data['Achieved'], color=color, alpha=0.85)
 
-            # Linienplots
-            ax.plot(x_data, event_data['Achieved'], color='#DAA520', linestyle='-')
+            # Plot lines
+            ax.plot(x_data, event_data['Achieved'], color=color, linestyle='-')
             ax.plot(x_data, event_data['Accounts Invited'], color='grey', linestyle='-')
 
-            # Dynamische y-Skalierung
+            # Dynamic y-axis scaling
             accounts_invited_max = event_data['Accounts Invited'].max()
             newest_signups = event_data['Achieved'].iloc[-1]
             if accounts_invited_max < hline_value and newest_signups < hline_value:
-                y_max = hline_value * 1.2  # 20% höher als hline_value
+                y_max = hline_value * 1.2  # 20% higher than hline_value
                 y_ticks = [25, hline_value]
             else:
                 y_val = max(accounts_invited_max, newest_signups)
@@ -76,7 +82,7 @@ if uploaded_file:
             ax.set_ylim(0, y_max)
             ax.set_yticks(y_ticks)
 
-            # x-Achse
+            # x-axis tick positions and labels
             x_tick_positions = list(x_data) + [len(event_data)]
             x_tick_labels = [d.strftime('%d.%m.') for d in event_data['Datum']]
             x_tick_labels.append(end_date.strftime('%d.%m.'))
@@ -85,7 +91,7 @@ if uploaded_file:
             ax.set_xticklabels(x_tick_labels, rotation=45, color='white')
             ax.margins(x=0)
 
-            # Anpassungen: Achsenrahmen, Farben, Schrift etc.
+            # Adjust axes: spines, tick parameters, fonts, and colors
             for spine in ax.spines.values():
                 spine.set_color('white')
             ax.spines['top'].set_visible(False)
@@ -98,16 +104,16 @@ if uploaded_file:
                 label.set_fontweight('bold')
                 try:
                     if int(label.get_text()) > 25:
-                        label.set_color('#DAA520')
+                        label.set_color(color)
                 except ValueError:
                     pass
 
-            # Direkte Beschriftung: "Sign-Ups" und "Accounts-invited"
+            # Direct annotations: "Sign-Ups" and "Accounts-invited"
             x_signups = np.median(x_data)
             achieved_min = event_data['Achieved'].min()
             signups_y = max(achieved_min - 5, 0)
-            ax.text(x_signups, signups_y, 'Sign-Ups', color='white', fontsize=13.5, fontname='Arial', ha='center',
-                    va='top')
+            ax.text(x_signups, signups_y, 'Sign-Ups', color='white', fontsize=13.5, fontname='Arial',
+                    ha='center', va='top')
 
             x_accounts = np.median(x_data)
             accounts_y = min(accounts_invited_max + 3, y_max)
@@ -116,16 +122,16 @@ if uploaded_file:
 
             plt.tight_layout()
 
-            # Speichere den Plot in einen BytesIO-Puffer
+            # Save the plot to a BytesIO buffer
             buf = io.BytesIO()
             fig.savefig(buf, format="png", transparent=True)
             buf.seek(0)
             plt.close(fig)
 
-            # Speichere den Buffer im Dictionary
+            # Store the buffer in the dictionary
             images[event] = buf
 
-            # Zusätzlich: Individueller Download-Button für jedes Event (mit unique key)
+            # Provide an individual download button for each event's plot
             st.download_button(
                 label=f"Download Grafik für {event}",
                 data=buf,
@@ -134,14 +140,14 @@ if uploaded_file:
                 key=f"{event}_download"
             )
 
-        # Erstelle ein ZIP-Archiv, das alle Grafiken enthält
+        # Create a ZIP archive containing all the plots
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for event, image_buf in images.items():
                 zip_file.writestr(f"{event}_plot.png", image_buf.getvalue())
         zip_buffer.seek(0)
 
-        # Biete einen Download-Button für das ZIP-Archiv an
+        # Provide a download button for the ZIP archive
         st.download_button(
             label="Download alle Grafiken als ZIP",
             data=zip_buffer,
